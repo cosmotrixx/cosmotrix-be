@@ -16,6 +16,7 @@
     "env": "vercel env"
   },
   "dependencies": {
+    "gif-encoder-2": "^1.0.7",
     "@ffmpeg/ffmpeg": "^0.12.15",
     "@ffmpeg/util": "^0.12.2",
     "@google/generative-ai": "^0.15.0",

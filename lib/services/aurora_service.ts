@@ -1,6 +1,9 @@
 import axios from 'axios';
 import sharp from 'sharp';
 import { v2 as cloudinary } from 'cloudinary';
+// Use CommonJS require to avoid TS type issues
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const GIFEncoder = require('gif-encoder-2');
 import { getPool } from '../models/database';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -276,64 +279,35 @@ export class AuroraService {
    *
    * This path avoids local ffmpeg entirely and is stable on serverless (Vercel).
    */
-  private static async createGifOnCloudinaryFromFrames(
-    imageBuffers: Buffer[],
-    hemisphere: 'north' | 'south',
-    fps: number = 4
-  ): Promise<string> {
-    const sessionId = `aurora-${hemisphere}-${Date.now()}`;
-    const prefixFolder = `aurora/${hemisphere}/sequences/${sessionId}`;
-    const tag = `seq-${sessionId}`;
-
-    // Upload frames in chronological order with zero-padded names for lexicographic ordering
-    for (let i = 0; i < imageBuffers.length; i++) {
-      const index = (i + 1).toString().padStart(5, '0');
-      const publicId = `${prefixFolder}/frame_${index}`;
-      await new Promise<void>((resolve, reject) => {
-        cloudinary.uploader
-          .upload_stream(
-            {
-              resource_type: 'image',
-              public_id: publicId,
-              folder: undefined, // public_id already includes folder
-              tags: [tag],
-              overwrite: true,
-            },
-            (error: any) => {
-              if (error) reject(error);
-              else resolve();
-            }
-          )
-          .end(imageBuffers[i]);
-      });
-      // Tiny delay to play nice with API rate limits
-      await this.sleep(20);
+  private static async createGifLocally(imageBuffers: Buffer[], fps: number = 4): Promise<Buffer> {
+    // Prepare consistent frame size via sharp (e.g., 512x512) and get RGBA raw buffers
+    const width = 512;
+    const height = 512;
+    const processed: Buffer[] = [];
+    for (const buf of imageBuffers) {
+      const rgba = await sharp(buf)
+        .resize(width, height, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 1 } })
+        .raw()
+        .ensureAlpha()
+        .toBuffer();
+      processed.push(rgba);
     }
 
-    // Assemble frames into an animated asset using the tag
-    // Use delay in hundredths of a second (Cloudinary animation delay unit)
-    const delayCs = Math.max(1, Math.round(100 / fps));
-    const animatedPublicId = `${prefixFolder}/animation`;
+    const delayMs = Math.round(1000 / fps);
+    const encoder = new GIFEncoder(width, height, 'neuquant', true);
+    encoder.setDelay(delayMs);
+    encoder.setRepeat(0); // loop forever
+    encoder.setQuality(10); // 1-best, 20-fast; 10 is reasonable
+    encoder.setTransparent(0x00000000);
 
-    const multiResult: any = await cloudinary.uploader.multi(tag, {
-      transformation: [{ delay: delayCs }],
-      format: 'gif',
-    });
-
-    // Build a GIF delivery URL for the created animated asset
-    const gifUrl = cloudinary.url(multiResult.public_id, {
-      resource_type: 'image',
-      format: 'gif',
-      secure: true,
-    });
-    // Best-effort cleanup of frame resources to save storage
-    try {
-      await cloudinary.api.delete_resources_by_tag(tag);
-    } catch (e) {
-      console.warn('Failed to cleanup frame resources for tag', tag);
+    const chunks: Buffer[] = [];
+    encoder.on('data', (chunk: Buffer) => chunks.push(chunk));
+    encoder.start();
+    for (const frame of processed) {
+      encoder.addFrame(frame);
     }
-
-    return gifUrl;
+    encoder.finish();
+    return Buffer.concat(chunks);
   }
 
   /**
@@ -533,10 +507,12 @@ export class AuroraService {
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
       const publicId = `aurora/${hemisphere}/${timestamp}`;
 
-      // Determine if this is MP4 or WebP based on buffer content
-      const isWebP = videoBuffer.slice(8, 12).toString() === 'WEBP';
-      const resourceType = isWebP ? 'image' : 'video';
-      const format = isWebP ? 'webp' : 'mp4';
+  // Detect common formats by magic bytes. If neither mp4/webp, treat as gif
+  const isWebP = videoBuffer.slice(8, 12).toString() === 'WEBP';
+  const isMp4 = videoBuffer.slice(4, 8).toString() === 'ftyp';
+  const isGif = videoBuffer.slice(0, 3).toString() === 'GIF';
+  const resourceType = isMp4 ? 'video' : 'image';
+  const format = isGif ? 'gif' : isWebP ? 'webp' : isMp4 ? 'mp4' : 'gif';
 
       console.log(`Detected format: ${format}, resource type: ${resourceType}`);
 
@@ -662,8 +638,9 @@ export class AuroraService {
 
       console.log(`Successfully downloaded ${imageBuffers.length} images`);
 
-  // Create MP4 by offloading to Cloudinary (stable for serverless)
-  const videoUrl = await this.createGifOnCloudinaryFromFrames(imageBuffers, hemisphere, 4);
+  // Create GIF locally and upload to Cloudinary as image/gif
+  const gifBuffer = await this.createGifLocally(imageBuffers, 4);
+  const videoUrl = await this.uploadToCloudinary(gifBuffer, hemisphere);
 
       // Save to database
       // After reversing, first image is oldest, last image is newest

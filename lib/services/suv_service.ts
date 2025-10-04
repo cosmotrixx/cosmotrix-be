@@ -1,6 +1,8 @@
 import axios from 'axios';
 import sharp from 'sharp';
 import { v2 as cloudinary } from 'cloudinary';
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const GIFEncoder = require('gif-encoder-2');
 import { getPool } from '../models/database';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -280,57 +282,36 @@ export class SUVService {
   }
 
   /**
-   * Create MP4 on Cloudinary from frames by tagging and using multi.
+   * Create GIF locally from image frames using sharp + gif-encoder-2
    */
-  private static async createGifOnCloudinaryFromFrames(
-    imageBuffers: Buffer[],
-    fps: number = 4
-  ): Promise<string> {
-    const sessionId = `suv-304-${Date.now()}`;
-    const prefixFolder = `suv/304/sequences/${sessionId}`;
-    const tag = `seq-${sessionId}`;
-
-    for (let i = 0; i < imageBuffers.length; i++) {
-      const index = (i + 1).toString().padStart(5, '0');
-      const publicId = `${prefixFolder}/frame_${index}`;
-      await new Promise<void>((resolve, reject) => {
-        cloudinary.uploader
-          .upload_stream(
-            {
-              resource_type: 'image',
-              public_id: publicId,
-              folder: undefined,
-              tags: [tag],
-              overwrite: true,
-            },
-            (error: any) => {
-              if (error) reject(error);
-              else resolve();
-            }
-          )
-          .end(imageBuffers[i]);
-      });
-      await this.sleep(20);
+  private static async createGifLocally(imageBuffers: Buffer[], fps: number = 4): Promise<Buffer> {
+    const width = 512;
+    const height = 512;
+    const processedFrames: Buffer[] = [];
+    for (const buf of imageBuffers) {
+      const rgba = await sharp(buf)
+        .resize(width, height, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 1 } })
+        .raw()
+        .ensureAlpha()
+        .toBuffer();
+      processedFrames.push(rgba);
     }
 
-    const delayCs = Math.max(1, Math.round(100 / fps));
-    const animatedPublicId = `${prefixFolder}/animation`;
-    const multiResult: any = await cloudinary.uploader.multi(tag, {
-      transformation: [{ delay: delayCs }],
-      format: 'gif',
-    });
+    const delayMs = Math.round(1000 / fps);
+    const encoder = new (GIFEncoder as any)(width, height, 'neuquant', true);
+    encoder.setDelay(delayMs);
+    encoder.setRepeat(0);
+    encoder.setQuality(10);
+    encoder.setTransparent(0x00000000);
 
-    const gifUrl = cloudinary.url(animatedPublicId || multiResult.public_id, {
-      resource_type: 'image',
-      format: 'gif',
-      secure: true,
-    });
-    try {
-      await cloudinary.api.delete_resources_by_tag(tag);
-    } catch (e) {
-      console.warn('Failed to cleanup frame resources for tag', tag);
+    const chunks: Buffer[] = [];
+    encoder.on('data', (chunk: Buffer) => chunks.push(chunk));
+    encoder.start();
+    for (const frame of processedFrames) {
+      encoder.addFrame(frame);
     }
-    return gifUrl;
+    encoder.finish();
+    return Buffer.concat(chunks);
   }
 
   /**
@@ -531,10 +512,12 @@ export class SUVService {
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
       const publicId = `suv/304/${timestamp}`;
 
-      // Determine if this is MP4 or WebP based on buffer content
+      // Detect format via magic bytes
+      const header6 = videoBuffer.slice(0, 6).toString(); // GIF87a/GIF89a
+      const isGIF = header6.startsWith('GIF8');
       const isWebP = videoBuffer.slice(8, 12).toString() === 'WEBP';
-      const resourceType = isWebP ? 'image' : 'video';
-      const format = isWebP ? 'webp' : 'mp4';
+      const resourceType = isGIF || isWebP ? 'image' : 'video';
+      const format = isGIF ? 'gif' : isWebP ? 'webp' : 'mp4';
 
       console.log(`Detected format: ${format}, resource type: ${resourceType}`);
 
@@ -658,8 +641,9 @@ export class SUVService {
 
       console.log(`Successfully downloaded ${imageBuffers.length} images`);
 
-  // Create MP4 by offloading to Cloudinary (stable on serverless)
-  const videoUrl = await this.createGifOnCloudinaryFromFrames(imageBuffers, 4);
+  // Create GIF locally in a serverless-safe way, then upload to Cloudinary
+  const gifBuffer = await this.createGifLocally(imageBuffers, 4);
+  const videoUrl = await this.uploadToCloudinary(gifBuffer);
 
       // Save to database
       // After reversing, first image is oldest, last image is newest

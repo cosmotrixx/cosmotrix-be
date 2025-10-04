@@ -1,6 +1,8 @@
 import axios from 'axios';
 import sharp from 'sharp';
 import { v2 as cloudinary } from 'cloudinary';
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const GIFEncoder = require('gif-encoder-2');
 import { getPool } from '../models/database';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -301,57 +303,30 @@ export class CMEService {
    * Create an MP4 by offloading composition to Cloudinary using tag-based multi and MP4 delivery URL.
    * Avoids ffmpeg on serverless.
    */
-  private static async createGifOnCloudinaryFromFrames(
-    imageBuffers: Buffer[],
-    type: 'ccor1' | 'lasco-c2' | 'lasco-c3',
-    fps: number = 4
-  ): Promise<string> {
-    const sessionId = `cme-${type}-${Date.now()}`;
-    const prefixFolder = `cme/${type}/sequences/${sessionId}`;
-    const tag = `seq-${sessionId}`;
-
-    for (let i = 0; i < imageBuffers.length; i++) {
-      const index = (i + 1).toString().padStart(5, '0');
-      const publicId = `${prefixFolder}/frame_${index}`;
-      await new Promise<void>((resolve, reject) => {
-        cloudinary.uploader
-          .upload_stream(
-            {
-              resource_type: 'image',
-              public_id: publicId,
-              folder: undefined,
-              tags: [tag],
-              overwrite: true,
-            },
-            (error: any) => {
-              if (error) reject(error);
-              else resolve();
-            }
-          )
-          .end(imageBuffers[i]);
-      });
-      await this.sleep(20);
+  private static async createGifLocally(imageBuffers: Buffer[], fps: number = 4): Promise<Buffer> {
+    const width = 512;
+    const height = 512;
+    const processed: Buffer[] = [];
+    for (const buf of imageBuffers) {
+      const rgba = await sharp(buf)
+        .resize(width, height, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 1 } })
+        .raw()
+        .ensureAlpha()
+        .toBuffer();
+      processed.push(rgba);
     }
-
-    const delayCs = Math.max(1, Math.round(100 / fps));
-    const animatedPublicId = `${prefixFolder}/animation`;
-    const multiResult: any = await cloudinary.uploader.multi(tag, {
-      transformation: [{ delay: delayCs }],
-      format: 'gif',
-    });
-
-    const gifUrl = cloudinary.url(animatedPublicId || multiResult.public_id, {
-      resource_type: 'image',
-      format: 'gif',
-      secure: true,
-    });
-    // Cleanup frames
-    try {
-      await cloudinary.api.delete_resources_by_tag(tag);
-    } catch (e) {
-      console.warn('Failed to cleanup frame resources for tag', tag);
-    }
-    return gifUrl;
+    const delayMs = Math.round(1000 / fps);
+    const encoder = new GIFEncoder(width, height, 'neuquant', true);
+    encoder.setDelay(delayMs);
+    encoder.setRepeat(0);
+    encoder.setQuality(10);
+    encoder.setTransparent(0x00000000);
+    const chunks: Buffer[] = [];
+    encoder.on('data', (c: Buffer) => chunks.push(c));
+    encoder.start();
+    for (const frame of processed) encoder.addFrame(frame);
+    encoder.finish();
+    return Buffer.concat(chunks);
   }
 
   /**
@@ -552,10 +527,12 @@ export class CMEService {
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
       const publicId = `cme/${type}/${timestamp}`;
 
-      // Determine if this is MP4 or WebP based on buffer content
-      const isWebP = videoBuffer.slice(8, 12).toString() === 'WEBP';
-      const resourceType = isWebP ? 'image' : 'video';
-      const format = isWebP ? 'webp' : 'mp4';
+  // Detect formats by magic bytes. Default to gif for local encoder
+  const isWebP = videoBuffer.slice(8, 12).toString() === 'WEBP';
+  const isMp4 = videoBuffer.slice(4, 8).toString() === 'ftyp';
+  const isGif = videoBuffer.slice(0, 3).toString() === 'GIF';
+  const resourceType = isMp4 ? 'video' : 'image';
+  const format = isGif ? 'gif' : isWebP ? 'webp' : isMp4 ? 'mp4' : 'gif';
 
       console.log(`Detected format: ${format}, resource type: ${resourceType}`);
 
@@ -682,7 +659,8 @@ export class CMEService {
       console.log(`Successfully downloaded ${imageBuffers.length} images`);
 
   // Create MP4 by offloading to Cloudinary (stable on serverless)
-  const videoUrl = await this.createGifOnCloudinaryFromFrames(imageBuffers, type, 4);
+  const gifBuffer = await this.createGifLocally(imageBuffers, 4);
+  const videoUrl = await this.uploadToCloudinary(gifBuffer, type);
 
       // Save to database
       // After reversing, first image is oldest, last image is newest
