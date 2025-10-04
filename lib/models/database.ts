@@ -53,6 +53,26 @@ export async function initializeDatabase(): Promise<void> {
       ON aurora_videos(hemisphere, created_at DESC);
     `);
 
+    // Create cme_videos table if it doesn't exist
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS cme_videos (
+        id SERIAL PRIMARY KEY,
+        type VARCHAR(20) NOT NULL CHECK (type IN ('ccor1', 'lasco-c2', 'lasco-c3')),
+        video_url TEXT NOT NULL,
+        image_count INTEGER NOT NULL,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        date_range_start TIMESTAMP WITH TIME ZONE NOT NULL,
+        date_range_end TIMESTAMP WITH TIME ZONE NOT NULL,
+        UNIQUE(type, date_range_start, date_range_end)
+      );
+    `);
+
+    // Create index for faster queries on CME videos
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_cme_videos_type_created 
+      ON cme_videos(type, created_at DESC);
+    `);
+
     // Keep the old aurora_gifs table for backward compatibility (optional)
     await pool.query(`
       CREATE TABLE IF NOT EXISTS aurora_gifs (
