@@ -269,12 +269,73 @@ export class AuroraService {
   }
 
   /**
+   * Create an MP4 by offloading composition to Cloudinary:
+   * 1) Upload frames as images under a unique prefix
+   * 2) Use Cloudinary's multi API to assemble an animated GIF
+   * 3) Return an MP4 delivery URL for the created asset
+   *
+   * This path avoids local ffmpeg entirely and is stable on serverless (Vercel).
+   */
+  private static async createMp4OnCloudinaryFromFrames(
+    imageBuffers: Buffer[],
+    hemisphere: 'north' | 'south',
+    fps: number = 4
+  ): Promise<string> {
+    const sessionId = `aurora-${hemisphere}-${Date.now()}`;
+    const prefixFolder = `aurora/${hemisphere}/sequences/${sessionId}`;
+    const tag = `seq-${sessionId}`;
+
+    // Upload frames in chronological order with zero-padded names for lexicographic ordering
+    for (let i = 0; i < imageBuffers.length; i++) {
+      const index = (i + 1).toString().padStart(5, '0');
+      const publicId = `${prefixFolder}/frame_${index}`;
+      await new Promise<void>((resolve, reject) => {
+        cloudinary.uploader
+          .upload_stream(
+            {
+              resource_type: 'image',
+              public_id: publicId,
+              folder: undefined, // public_id already includes folder
+              tags: [tag],
+              overwrite: true,
+            },
+            (error: any) => {
+              if (error) reject(error);
+              else resolve();
+            }
+          )
+          .end(imageBuffers[i]);
+      });
+      // Tiny delay to play nice with API rate limits
+      await this.sleep(20);
+    }
+
+    // Assemble frames into an animated asset using the tag
+    // Use delay in hundredths of a second (Cloudinary animation delay unit)
+    const delayCs = Math.max(1, Math.round(100 / fps));
+    const animatedPublicId = `${prefixFolder}/animation`;
+
+    const multiResult: any = await cloudinary.uploader.multi(tag, {
+      transformation: [{ delay: delayCs }],
+      format: 'gif',
+    });
+
+    // Build an MP4 delivery URL for the created animated asset
+    const mp4Url = cloudinary.url(animatedPublicId || multiResult.public_id, {
+      resource_type: 'video',
+      format: 'mp4',
+      secure: true,
+    });
+
+    return mp4Url;
+  }
+
+  /**
    * Create MP4 video using FFmpeg
    */
   private static async createMP4WithFFmpeg(imageBuffers: Buffer[], fps: number = 4): Promise<Buffer> {
     const tempDir = path.join(os.tmpdir(), `aurora_${Date.now()}`);
     const outputPath = path.join(tempDir, 'aurora.mp4');
-    
     try {
       console.log(`Creating MP4 from ${imageBuffers.length} images using FFmpeg...`);
       
@@ -595,11 +656,8 @@ export class AuroraService {
 
       console.log(`Successfully downloaded ${imageBuffers.length} images`);
 
-      // Create video (MP4 with FFmpeg fallback to animated WebP) - 4 FPS for faster playback
-      const videoBuffer = await this.createVideo(imageBuffers, 4); // 4 FPS (2x faster)
-
-      // Upload to Cloudinary
-      const videoUrl = await this.uploadToCloudinary(videoBuffer, hemisphere);
+  // Create MP4 by offloading to Cloudinary (stable for serverless)
+  const videoUrl = await this.createMp4OnCloudinaryFromFrames(imageBuffers, hemisphere, 4);
 
       // Save to database
       // After reversing, first image is oldest, last image is newest
