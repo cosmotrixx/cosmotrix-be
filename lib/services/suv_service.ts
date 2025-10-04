@@ -282,7 +282,7 @@ export class SUVService {
   /**
    * Create MP4 on Cloudinary from frames by tagging and using multi.
    */
-  private static async createMp4OnCloudinaryFromFrames(
+  private static async createGifOnCloudinaryFromFrames(
     imageBuffers: Buffer[],
     fps: number = 4
   ): Promise<string> {
@@ -320,9 +320,9 @@ export class SUVService {
       format: 'gif',
     });
 
-    const mp4Url = cloudinary.url(animatedPublicId || multiResult.public_id, {
+    const gifUrl = cloudinary.url(animatedPublicId || multiResult.public_id, {
       resource_type: 'image',
-      format: 'mp4',
+      format: 'gif',
       secure: true,
     });
     try {
@@ -330,7 +330,7 @@ export class SUVService {
     } catch (e) {
       console.warn('Failed to cleanup frame resources for tag', tag);
     }
-    return mp4Url;
+    return gifUrl;
   }
 
   /**
@@ -659,7 +659,7 @@ export class SUVService {
       console.log(`Successfully downloaded ${imageBuffers.length} images`);
 
   // Create MP4 by offloading to Cloudinary (stable on serverless)
-  const videoUrl = await this.createMp4OnCloudinaryFromFrames(imageBuffers, 4);
+  const videoUrl = await this.createGifOnCloudinaryFromFrames(imageBuffers, 4);
 
       // Save to database
       // After reversing, first image is oldest, last image is newest

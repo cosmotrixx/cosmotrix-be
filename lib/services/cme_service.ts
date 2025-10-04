@@ -301,7 +301,7 @@ export class CMEService {
    * Create an MP4 by offloading composition to Cloudinary using tag-based multi and MP4 delivery URL.
    * Avoids ffmpeg on serverless.
    */
-  private static async createMp4OnCloudinaryFromFrames(
+  private static async createGifOnCloudinaryFromFrames(
     imageBuffers: Buffer[],
     type: 'ccor1' | 'lasco-c2' | 'lasco-c3',
     fps: number = 4
@@ -340,9 +340,9 @@ export class CMEService {
       format: 'gif',
     });
 
-    const mp4Url = cloudinary.url(animatedPublicId || multiResult.public_id, {
+    const gifUrl = cloudinary.url(animatedPublicId || multiResult.public_id, {
       resource_type: 'image',
-      format: 'mp4',
+      format: 'gif',
       secure: true,
     });
     // Cleanup frames
@@ -351,7 +351,7 @@ export class CMEService {
     } catch (e) {
       console.warn('Failed to cleanup frame resources for tag', tag);
     }
-    return mp4Url;
+    return gifUrl;
   }
 
   /**
@@ -682,7 +682,7 @@ export class CMEService {
       console.log(`Successfully downloaded ${imageBuffers.length} images`);
 
   // Create MP4 by offloading to Cloudinary (stable on serverless)
-  const videoUrl = await this.createMp4OnCloudinaryFromFrames(imageBuffers, type, 4);
+  const videoUrl = await this.createGifOnCloudinaryFromFrames(imageBuffers, type, 4);
 
       // Save to database
       // After reversing, first image is oldest, last image is newest

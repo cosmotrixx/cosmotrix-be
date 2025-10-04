@@ -276,7 +276,7 @@ export class AuroraService {
    *
    * This path avoids local ffmpeg entirely and is stable on serverless (Vercel).
    */
-  private static async createMp4OnCloudinaryFromFrames(
+  private static async createGifOnCloudinaryFromFrames(
     imageBuffers: Buffer[],
     hemisphere: 'north' | 'south',
     fps: number = 4
@@ -320,14 +320,20 @@ export class AuroraService {
       format: 'gif',
     });
 
-    // Build an MP4 delivery URL for the created animated asset
-    const mp4Url = cloudinary.url(animatedPublicId || multiResult.public_id, {
-      resource_type: 'video',
-      format: 'mp4',
+    // Build a GIF delivery URL for the created animated asset
+    const gifUrl = cloudinary.url(multiResult.public_id, {
+      resource_type: 'image',
+      format: 'gif',
       secure: true,
     });
+    // Best-effort cleanup of frame resources to save storage
+    try {
+      await cloudinary.api.delete_resources_by_tag(tag);
+    } catch (e) {
+      console.warn('Failed to cleanup frame resources for tag', tag);
+    }
 
-    return mp4Url;
+    return gifUrl;
   }
 
   /**
@@ -657,7 +663,7 @@ export class AuroraService {
       console.log(`Successfully downloaded ${imageBuffers.length} images`);
 
   // Create MP4 by offloading to Cloudinary (stable for serverless)
-  const videoUrl = await this.createMp4OnCloudinaryFromFrames(imageBuffers, hemisphere, 4);
+  const videoUrl = await this.createGifOnCloudinaryFromFrames(imageBuffers, hemisphere, 4);
 
       // Save to database
       // After reversing, first image is oldest, last image is newest
