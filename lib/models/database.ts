@@ -73,6 +73,26 @@ export async function initializeDatabase(): Promise<void> {
       ON cme_videos(type, created_at DESC);
     `);
 
+    // Create suv_videos table if it doesn't exist
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS suv_videos (
+        id SERIAL PRIMARY KEY,
+        type VARCHAR(10) NOT NULL CHECK (type IN ('304')),
+        video_url TEXT NOT NULL,
+        image_count INTEGER NOT NULL,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        date_range_start TIMESTAMP WITH TIME ZONE NOT NULL,
+        date_range_end TIMESTAMP WITH TIME ZONE NOT NULL,
+        UNIQUE(type, date_range_start, date_range_end)
+      );
+    `);
+
+    // Create index for faster queries on SUV videos
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_suv_videos_type_created 
+      ON suv_videos(type, created_at DESC);
+    `);
+
     // Keep the old aurora_gifs table for backward compatibility (optional)
     await pool.query(`
       CREATE TABLE IF NOT EXISTS aurora_gifs (
