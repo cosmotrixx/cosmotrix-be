@@ -1,4 +1,4 @@
-import { VercelRequest, VercelResponse } from '@vercel/node';
+import { VercelRequest, VercelResponse } from '../types';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   // Handle CORS
@@ -24,9 +24,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       summarize: '/api/summarize',
       codeExplain: '/api/code/explain',
       health: '/api/health',
+      characters: {
+        pilot: '/api/characters/pilot',
+        powerOperator: '/api/characters/power-operator',
+        astronaut: '/api/characters/astronaut',
+        satelliteOperator: '/api/characters/satellite-operator',
+        emergencyCoordinator: '/api/characters/emergency-coordinator',
+        scientist: '/api/characters/scientist'
+      },
       aurora: '/api/aurora?hemisphere={north|south}',
       auroraProcess: 'POST /api/aurora',
       auroraCron: 'POST /api/aurora-cron'
+
     }
   });
 }
