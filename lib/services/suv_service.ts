@@ -644,7 +644,7 @@ export class SUVService {
       console.log(`Successfully downloaded ${imageBuffers.length} images`);
 
   // Create GIF locally in a serverless-safe way, then upload to Cloudinary
-  const gifBuffer = await this.createGifLocally(imageBuffers, 4);
+  const gifBuffer = await this.createGifLocally(imageBuffers, 6);
   const videoUrl = await this.uploadToCloudinary(gifBuffer);
 
       // Save to database

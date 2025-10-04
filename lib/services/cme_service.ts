@@ -662,7 +662,7 @@ export class CMEService {
       console.log(`Successfully downloaded ${imageBuffers.length} images`);
 
   // Create MP4 by offloading to Cloudinary (stable on serverless)
-  const gifBuffer = await this.createGifLocally(imageBuffers, 4);
+  const gifBuffer = await this.createGifLocally(imageBuffers, 6);
   const videoUrl = await this.uploadToCloudinary(gifBuffer, type);
 
       // Save to database

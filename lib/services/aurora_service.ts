@@ -642,7 +642,7 @@ export class AuroraService {
       console.log(`Successfully downloaded ${imageBuffers.length} images`);
 
   // Create GIF locally and upload to Cloudinary as image/gif
-  const gifBuffer = await this.createGifLocally(imageBuffers, 4);
+  const gifBuffer = await this.createGifLocally(imageBuffers, 6);
   const videoUrl = await this.uploadToCloudinary(gifBuffer, hemisphere);
 
       // Save to database
