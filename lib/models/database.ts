@@ -4,27 +4,40 @@ let pool: Pool | null = null;
 
 export function getPool(): Pool {
   if (!pool) {
-    // Use individual environment variables if DATABASE_URL is not available
     if (process.env.DATABASE_URL) {
-      const url = new URL(process.env.DATABASE_URL);
+      // Use DATABASE_URL (preferred for Supabase)
       pool = new Pool({
-        host: url.hostname,
-        port: parseInt(url.port) || 5432,
-        database: url.pathname.slice(1),
-        user: url.username,
-        password: url.password,
-        ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+        connectionString: process.env.DATABASE_URL,
+        ssl: {
+          rejectUnauthorized: false // Required for Supabase
+        },
+        // Optimize for serverless functions
+        max: 10,
+        idleTimeoutMillis: 30000,
+        connectionTimeoutMillis: 2000,
       });
     } else {
+      // Fallback to individual environment variables
       pool = new Pool({
         host: process.env.DB_HOST || 'localhost',
         port: parseInt(process.env.DB_PORT || '5432'),
-        database: process.env.DB_NAME || 'cosmotrix_db',
-        user: process.env.DB_USER || 'cosmotrix_user',
-        password: process.env.DB_PASSWORD || 'cosmotrix123',
-        ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+        user: process.env.DB_USER || 'postgres',
+        password: process.env.DB_PASSWORD,
+        database: process.env.DB_NAME || 'postgres',
+        ssl: process.env.DB_HOST?.includes('supabase.com') ? {
+          rejectUnauthorized: false
+        } : false,
+        // Optimize for serverless functions
+        max: 10,
+        idleTimeoutMillis: 30000,
+        connectionTimeoutMillis: 2000,
       });
     }
+    
+    // Handle connection errors
+    pool.on('error', (err) => {
+      console.error('Unexpected database error:', err);
+    });
   }
   return pool;
 }
