@@ -294,20 +294,23 @@ export class AuroraService {
     }
 
     const delayMs = Math.round(1000 / fps);
-    const encoder = new GIFEncoder(width, height, 'neuquant', true);
+    const encoder = new GIFEncoder(width, height);
     encoder.setDelay(delayMs);
     encoder.setRepeat(0); // loop forever
     encoder.setQuality(10); // 1-best, 20-fast; 10 is reasonable
     encoder.setTransparent(0x00000000);
 
-    const chunks: Buffer[] = [];
-    encoder.on('data', (chunk: Buffer) => chunks.push(chunk));
     encoder.start();
     for (const frame of processed) {
       encoder.addFrame(frame);
     }
     encoder.finish();
-    return Buffer.concat(chunks);
+    const out = (encoder as any).out?.getData?.() ?? null;
+    const gifBuffer: Buffer = Buffer.isBuffer(out) ? out : out ? Buffer.from(out) : Buffer.alloc(0);
+    if (!gifBuffer || gifBuffer.length === 0) {
+      throw new Error('GIF encoding produced an empty buffer');
+    }
+    return gifBuffer;
   }
 
   /**
@@ -510,7 +513,7 @@ export class AuroraService {
   // Detect common formats by magic bytes. If neither mp4/webp, treat as gif
   const isWebP = videoBuffer.slice(8, 12).toString() === 'WEBP';
   const isMp4 = videoBuffer.slice(4, 8).toString() === 'ftyp';
-  const isGif = videoBuffer.slice(0, 3).toString() === 'GIF';
+  const isGif = videoBuffer.slice(0, 4).toString() === 'GIF8';
   const resourceType = isMp4 ? 'video' : 'image';
   const format = isGif ? 'gif' : isWebP ? 'webp' : isMp4 ? 'mp4' : 'gif';
 

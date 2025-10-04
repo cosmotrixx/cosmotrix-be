@@ -316,17 +316,20 @@ export class CMEService {
       processed.push(rgba);
     }
     const delayMs = Math.round(1000 / fps);
-    const encoder = new GIFEncoder(width, height, 'neuquant', true);
+    const encoder = new GIFEncoder(width, height);
     encoder.setDelay(delayMs);
     encoder.setRepeat(0);
     encoder.setQuality(10);
     encoder.setTransparent(0x00000000);
-    const chunks: Buffer[] = [];
-    encoder.on('data', (c: Buffer) => chunks.push(c));
     encoder.start();
     for (const frame of processed) encoder.addFrame(frame);
     encoder.finish();
-    return Buffer.concat(chunks);
+    const out = (encoder as any).out?.getData?.() ?? null;
+    const gifBuffer: Buffer = Buffer.isBuffer(out) ? out : out ? Buffer.from(out) : Buffer.alloc(0);
+    if (!gifBuffer || gifBuffer.length === 0) {
+      throw new Error('GIF encoding produced an empty buffer');
+    }
+    return gifBuffer;
   }
 
   /**
@@ -530,7 +533,7 @@ export class CMEService {
   // Detect formats by magic bytes. Default to gif for local encoder
   const isWebP = videoBuffer.slice(8, 12).toString() === 'WEBP';
   const isMp4 = videoBuffer.slice(4, 8).toString() === 'ftyp';
-  const isGif = videoBuffer.slice(0, 3).toString() === 'GIF';
+  const isGif = videoBuffer.slice(0, 4).toString() === 'GIF8';
   const resourceType = isMp4 ? 'video' : 'image';
   const format = isGif ? 'gif' : isWebP ? 'webp' : isMp4 ? 'mp4' : 'gif';
 

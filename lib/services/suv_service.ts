@@ -298,20 +298,23 @@ export class SUVService {
     }
 
     const delayMs = Math.round(1000 / fps);
-    const encoder = new (GIFEncoder as any)(width, height, 'neuquant', true);
+    const encoder = new GIFEncoder(width, height);
     encoder.setDelay(delayMs);
     encoder.setRepeat(0);
     encoder.setQuality(10);
     encoder.setTransparent(0x00000000);
 
-    const chunks: Buffer[] = [];
-    encoder.on('data', (chunk: Buffer) => chunks.push(chunk));
     encoder.start();
     for (const frame of processedFrames) {
       encoder.addFrame(frame);
     }
     encoder.finish();
-    return Buffer.concat(chunks);
+    const out = (encoder as any).out?.getData?.() ?? null;
+    const gifBuffer: Buffer = Buffer.isBuffer(out) ? out : out ? Buffer.from(out) : Buffer.alloc(0);
+    if (!gifBuffer || gifBuffer.length === 0) {
+      throw new Error('GIF encoding produced an empty buffer');
+    }
+    return gifBuffer;
   }
 
   /**
@@ -513,8 +516,7 @@ export class SUVService {
       const publicId = `suv/304/${timestamp}`;
 
       // Detect format via magic bytes
-      const header6 = videoBuffer.slice(0, 6).toString(); // GIF87a/GIF89a
-      const isGIF = header6.startsWith('GIF8');
+  const isGIF = videoBuffer.slice(0, 4).toString() === 'GIF8';
       const isWebP = videoBuffer.slice(8, 12).toString() === 'WEBP';
       const resourceType = isGIF || isWebP ? 'image' : 'video';
       const format = isGIF ? 'gif' : isWebP ? 'webp' : 'mp4';
