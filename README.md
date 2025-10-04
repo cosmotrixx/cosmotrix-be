@@ -27,6 +27,164 @@ A modular serverless backend for AI Agents written in TypeScript, designed to ru
 ### Health Check
 - `GET /api/health` - Service health status
 
+## Solar Imagery Endpoints (Aurora, CME, SUV)
+
+These endpoints fetch the latest images from NOAA, compose them into an animated GIF server-side (no ffmpeg required), upload the GIF to Cloudinary, and return the CDN URL. The default animation speed is 6 FPS (about 1.5x the earlier 4 FPS).
+
+Notes
+- Output format: GIF (returned as `video_url`).
+- Frame cap: `maxImages` is clamped internally to 288 to avoid oversized requests.
+- Background: kept opaque (no transparency) so imagery is preserved.
+
+### Aurora
+
+- GET latest by hemisphere
+  - `GET /api/aurora?hemisphere=north|south`
+
+  CMD-compatible curl
+  ```bat
+  curl -X GET "https://your-app.vercel.app/api/aurora?hemisphere=north" -H "Accept: application/json"
+  ```
+
+- POST to compose a new GIF
+  - `POST /api/aurora`
+  - Body: `hemisphere` ("north"|"south"), optional `maxImages` (1..1000, clamped to 288)
+
+  CMD-compatible curl
+  ```bat
+  curl -X POST "https://your-app.vercel.app/api/aurora" -H "Content-Type: application/json" -d "{\"hemisphere\":\"north\",\"maxImages\":60}"
+  ```
+
+Sample success response
+```json
+{
+  "success": true,
+  "data": {
+    "hemisphere": "north",
+    "video_url": "https://res.cloudinary.com/<cloud>/image/upload/.../aurora.gif",
+    "image_count": 60,
+    "created_at": "2025-10-04T00:00:00.000Z",
+    "date_range": { "start": "2025-10-03T20:00:00Z", "end": "2025-10-04T00:00:00Z" }
+  }
+}
+```
+
+### CME (Coronal Mass Ejection)
+
+Supported types: `ccor1`, `lasco-c2`, `lasco-c3`
+
+- GET latest by type
+  - `GET /api/cme?type=ccor1|lasco-c2|lasco-c3`
+
+  CMD-compatible curl
+  ```bat
+  curl -X GET "https://your-app.vercel.app/api/cme?type=ccor1" -H "Accept: application/json"
+  ```
+
+- POST to compose a new GIF
+  - `POST /api/cme`
+  - Body: `type` (required), optional `maxImages` (1..1000, clamped to 288)
+
+  CMD-compatible curl
+  ```bat
+  curl -X POST "https://your-app.vercel.app/api/cme" -H "Content-Type: application/json" -d "{\"type\":\"ccor1\",\"maxImages\":60}"
+  ```
+
+Sample success response
+```json
+{
+  "success": true,
+  "data": {
+    "type": "ccor1",
+    "video_url": "https://res.cloudinary.com/<cloud>/image/upload/.../cme.gif",
+    "image_count": 60,
+    "created_at": "2025-10-04T00:00:00.000Z",
+    "date_range": { "start": "2025-10-03T20:00:00Z", "end": "2025-10-04T00:00:00Z" }
+  }
+}
+```
+
+### SUV (SUVI 304 Å)
+
+- GET latest
+  - `GET /api/suv`
+
+  CMD-compatible curl
+  ```bat
+  curl -X GET "https://your-app.vercel.app/api/suv" -H "Accept: application/json"
+  ```
+
+- POST to compose a new GIF
+  - `POST /api/suv`
+  - Body: optional `maxImages` (1..1000, clamped to 288)
+
+  CMD-compatible curl
+  ```bat
+  curl -X POST "https://your-app.vercel.app/api/suv" -H "Content-Type: application/json" -d "{\"maxImages\":60}"
+  ```
+
+Sample success response
+```json
+{
+  "success": true,
+  "data": {
+    "type": "304",
+    "video_url": "https://res.cloudinary.com/<cloud>/image/upload/.../suv.gif",
+    "image_count": 60,
+    "created_at": "2025-10-04T00:00:00.000Z",
+    "date_range": { "start": "2025-10-03T20:00:00Z", "end": "2025-10-04T00:00:00Z" }
+  }
+}
+```
+
+### Local development URLs
+- Vercel dev typically listens at http://localhost:3000
+- Replace the base URL in curl examples with `http://localhost:3000`
+
+```bat
+curl -X GET "http://localhost:3000/api/suv" -H "Accept: application/json"
+curl -X POST "http://localhost:3000/api/cme" -H "Content-Type: application/json" -d "{\"type\":\"ccor1\",\"maxImages\":60}"
+curl -X POST "http://localhost:3000/api/aurora" -H "Content-Type: application/json" -d "{\"hemisphere\":\"north\",\"maxImages\":60}"
+```
+
+## Scheduled Jobs (Cron endpoints)
+
+These endpoints can be invoked by a scheduler to ingest and compose the latest imagery automatically. They require a Bearer token if `CRON_SECRET` is set.
+
+- `POST /api/aurora-cron` (process north and south)
+- `POST /api/cme-cron` (process ccor1, lasco-c2, lasco-c3)
+- `POST /api/suv-cron` (process SUVI 304)
+
+Enable flags
+- `AURORA_FETCH_ENABLED=true`
+- `CME_FETCH_ENABLED=true`
+- `SUV_FETCH_ENABLED=true`
+
+CMD-compatible curl (with secret)
+```bat
+curl -X POST "https://your-app.vercel.app/api/aurora-cron" -H "Authorization: Bearer %CRON_SECRET%"
+```
+
+## Required Environment Variables (Solar imagery)
+
+Cloudinary (upload and delivery)
+- `CLOUDINARY_CLOUD_NAME`
+- `CLOUDINARY_API_KEY`
+- `CLOUDINARY_API_SECRET`
+
+PostgreSQL (any compatible managed DB; Supabase works well)
+- Prefer: `DATABASE_URL` (includes credentials and ssl)
+- Or specify individually: `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`
+
+Optional
+- `CRON_SECRET` (string) to protect cron endpoints with a bearer token
+- `AURORA_FETCH_ENABLED`, `CME_FETCH_ENABLED`, `SUV_FETCH_ENABLED` ("true" to enable cron execution)
+
+Performance and limits
+- Default FPS: 6 (faster animation). Currently fixed; contact maintainers to make it configurable.
+- `maxImages`: validated to 1..1000 in APIs and clamped to 288 in services.
+- All GIF composition is done locally (serverless-safe) using sharp + gif-encoder-2.
+
 ## Setup
 
 ### 1. Environment Variables
