@@ -320,7 +320,7 @@ export class CMEService {
     encoder.setDelay(delayMs);
     encoder.setRepeat(0);
     encoder.setQuality(10);
-    encoder.setTransparent(0x00000000);
+  // Do not set a transparent color; keep backgrounds opaque
     encoder.start();
     for (const frame of processed) encoder.addFrame(frame);
     encoder.finish();

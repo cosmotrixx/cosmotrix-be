@@ -298,7 +298,7 @@ export class AuroraService {
     encoder.setDelay(delayMs);
     encoder.setRepeat(0); // loop forever
     encoder.setQuality(10); // 1-best, 20-fast; 10 is reasonable
-    encoder.setTransparent(0x00000000);
+  // Do not set a transparent color; keep backgrounds opaque
 
     encoder.start();
     for (const frame of processed) {
