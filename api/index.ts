@@ -23,7 +23,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       conversation: '/api/conversation?thread_id={id}',
       summarize: '/api/summarize',
       codeExplain: '/api/code/explain',
-      health: '/api/health'
+      health: '/api/health',
+      aurora: '/api/aurora?hemisphere={north|south}',
+      auroraProcess: 'POST /api/aurora',
+      auroraCron: 'POST /api/aurora-cron'
     }
   });
 }
