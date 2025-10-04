@@ -287,108 +287,139 @@ export class CMEService {
    * Create MP4 video from multiple images
    * Images should be provided in chronological order (oldest to newest)
    */
-    static async createMP4(imageBuffers: Buffer[], fps: number = 4): Promise<Buffer> {
-        const tempDir = path.join(os.tmpdir(), `aurora_${Date.now()}`);
-        const outputPath = path.join(tempDir, 'aurora.mp4');
-        
-        try {
-            console.log(`Creating MP4 from ${imageBuffers.length} images...`);
-            
-            // Create temporary directory
-            if (!fs.existsSync(tempDir)) {
-            fs.mkdirSync(tempDir, { recursive: true });
-            }
-            
-            // Save all images as temporary files
-            const imagePaths: string[] = [];
-            for (let i = 0; i < imageBuffers.length; i++) {
-            const imagePath = path.join(tempDir, `frame_${i.toString().padStart(4, '0')}.png`);
-            
-            // Process and save image
-            await sharp(imageBuffers[i])
-                .resize(512, 512, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 1 } })
-                .png()
-                .toFile(imagePath);
-            
-            imagePaths.push(imagePath);
-            }
-            
-            console.log(`Creating MP4 with ${imagePaths.length} frames at ${fps} FPS...`);
-            
-            // Use ffmpeg-static to create MP4
-            const ffmpegPath = ffmpegStatic || 'ffmpeg';
-            const { spawn } = require('child_process');
-            
-            await new Promise<void>((resolve, reject) => {
-            const ffmpeg = spawn(ffmpegPath, [
-                '-y', // Overwrite output file
-                '-framerate', fps.toString(),
-                '-i', path.join(tempDir, 'frame_%04d.png'),
-                '-c:v', 'libx264',
-                '-pix_fmt', 'yuv420p',
-                '-crf', '23',
-                '-preset', 'medium',
-                '-movflags', '+faststart', // Optimize for web streaming
-                outputPath
-            ]);
-            
-            let stderr = '';
-            
-            ffmpeg.stderr.on('data', (data: any) => {
-                stderr += data.toString();
-                console.log(`FFmpeg: ${data}`);
-            });
-            
-            ffmpeg.on('close', (code: any) => {
-                if (code === 0) {
-                resolve();
-                } else {
-                reject(new Error(`FFmpeg process exited with code ${code}. Error: ${stderr}`));
-                }
-            });
-            
-            ffmpeg.on('error', (error: any) => {
-                reject(new Error(`Failed to spawn FFmpeg: ${error.message}`));
-            });
-            });
-            
-            // Read the created MP4 file
-            const mp4Buffer = fs.readFileSync(outputPath);
-            
-            // Clean up temporary files
-            for (const imagePath of imagePaths) {
-            try {
-                fs.unlinkSync(imagePath);
-            } catch (e) {
-                console.warn(`Failed to delete temporary image: ${imagePath}`);
-            }
-            }
-            
-            try {
-            fs.unlinkSync(outputPath);
-            fs.rmdirSync(tempDir);
-            } catch (e) {
-            console.warn(`Failed to clean up temporary directory: ${tempDir}`);
-            }
-            
-            console.log(`✓ MP4 created successfully (${mp4Buffer.length} bytes)`);
-            return mp4Buffer;
-            
-        } catch (error) {
-            console.error('Error creating video:', error);
-            
-            // Clean up on error
-            try {
-            if (fs.existsSync(tempDir)) {
-                fs.rmSync(tempDir, { recursive: true, force: true });
-            }
-            } catch (e) {
-            console.warn(`Failed to clean up on error: ${tempDir}`);
-            }
-            
-            throw new Error(`Failed to create video from images: ${error instanceof Error ? error.message : 'Unknown error'}`);
-        }
-    }
+   static async createMP4(imageBuffers: Buffer[], fps: number = 4): Promise<Buffer> {
+     const tempDir = path.join(os.tmpdir(), `cme_${Date.now()}`);
+     const outputPath = path.join(tempDir, 'cme.mp4');
+     
+     try {
+         console.log(`Creating MP4 from ${imageBuffers.length} images...`);
+         
+         // Create temporary directory
+         if (!fs.existsSync(tempDir)) {
+         fs.mkdirSync(tempDir, { recursive: true });
+         }
+         
+         // Save all images as temporary files
+         const imagePaths: string[] = [];
+         for (let i = 0; i < imageBuffers.length; i++) {
+         const imagePath = path.join(tempDir, `frame_${i.toString().padStart(4, '0')}.png`);
+         
+         // Process and save image
+         await sharp(imageBuffers[i])
+             .resize(512, 512, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 1 } })
+             .png()
+             .toFile(imagePath);
+         
+         imagePaths.push(imagePath);
+         }
+         
+         console.log(`Creating MP4 with ${imagePaths.length} frames at ${fps} FPS...`);
+         
+         // Get the correct ffmpeg path
+         let ffmpegPath: string;
+         if (typeof ffmpegStatic === 'string') {
+         ffmpegPath = ffmpegStatic;
+         } else if (ffmpegStatic && typeof ffmpegStatic === 'object' && 'path' in ffmpegStatic) {
+         ffmpegPath = (ffmpegStatic as any).path;
+         } else {
+         // Fallback to system ffmpeg
+         ffmpegPath = 'ffmpeg';
+         }
+         
+         console.log(`Using FFmpeg path: ${ffmpegPath}`);
+         
+         const { spawn } = require('child_process');
+         
+         await new Promise<void>((resolve, reject) => {
+         const args = [
+             '-y', // Overwrite output file
+             '-framerate', fps.toString(),
+             '-i', path.join(tempDir, 'frame_%04d.png'),
+             '-c:v', 'libx264',
+             '-pix_fmt', 'yuv420p',
+             '-crf', '23',
+             '-preset', 'medium',
+             '-movflags', '+faststart', // Optimize for web streaming
+             outputPath
+         ];
+         
+         console.log(`Spawning FFmpeg with args: ${JSON.stringify(args)}`);
+         
+         const ffmpeg = spawn(ffmpegPath, args, {
+             stdio: ['pipe', 'pipe', 'pipe']
+         });
+         
+         let stderr = '';
+         let stdout = '';
+         
+         ffmpeg.stdout.on('data', (data: any) => {
+             stdout += data.toString();
+             console.log(`FFmpeg stdout: ${data}`);
+         });
+         
+         ffmpeg.stderr.on('data', (data: any) => {
+             stderr += data.toString();
+             console.log(`FFmpeg stderr: ${data}`);
+         });
+         
+         ffmpeg.on('close', (code: any) => {
+             console.log(`FFmpeg process exited with code ${code}`);
+             if (code === 0) {
+             resolve();
+             } else {
+             reject(new Error(`FFmpeg process exited with code ${code}. Stderr: ${stderr}`));
+             }
+         });
+         
+         ffmpeg.on('error', (error: any) => {
+             console.error(`FFmpeg spawn error:`, error);
+             reject(new Error(`Failed to spawn FFmpeg: ${error.message}`));
+         });
+         });
+         
+         // Check if output file was created
+         if (!fs.existsSync(outputPath)) {
+         throw new Error('FFmpeg did not create output file');
+         }
+         
+         // Read the created MP4 file
+         const mp4Buffer = fs.readFileSync(outputPath);
+         console.log(`MP4 file size: ${mp4Buffer.length} bytes`);
+         
+         // Clean up temporary files
+         for (const imagePath of imagePaths) {
+         try {
+             fs.unlinkSync(imagePath);
+         } catch (e) {
+             console.warn(`Failed to delete temporary image: ${imagePath}`);
+         }
+         }
+         
+         try {
+         fs.unlinkSync(outputPath);
+         fs.rmdirSync(tempDir);
+         } catch (e) {
+         console.warn(`Failed to clean up temporary directory: ${tempDir}`);
+         }
+         
+         console.log(`✓ MP4 created successfully (${mp4Buffer.length} bytes)`);
+         return mp4Buffer;
+         
+     } catch (error) {
+         console.error('Error creating video:', error);
+         
+         // Clean up on error
+         try {
+         if (fs.existsSync(tempDir)) {
+             fs.rmSync(tempDir, { recursive: true, force: true });
+         }
+         } catch (e) {
+         console.warn(`Failed to clean up on error: ${tempDir}`);
+         }
+         
+         throw new Error(`Failed to create video from images: ${error instanceof Error ? error.message : 'Unknown error'}`);
+     }
+ }
 
   /**
    * Upload video to Cloudinary
