@@ -5,6 +5,7 @@ import { getPool } from '../models/database';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import * as ffmpegStatic from 'ffmpeg-static';
 
 // Configure Cloudinary
 cloudinary.config({
@@ -262,36 +263,35 @@ export class AuroraService {
     const outputPath = path.join(tempDir, 'aurora.mp4');
     
     try {
-      console.log(`Creating MP4 from ${imageBuffers.length} images...`);
-      
-      // Create temporary directory
-      if (!fs.existsSync(tempDir)) {
+        console.log(`Creating MP4 from ${imageBuffers.length} images...`);
+        
+        // Create temporary directory
+        if (!fs.existsSync(tempDir)) {
         fs.mkdirSync(tempDir, { recursive: true });
-      }
-      
-      // Save all images as temporary files
-      const imagePaths: string[] = [];
-      for (let i = 0; i < imageBuffers.length; i++) {
+        }
+        
+        // Save all images as temporary files
+        const imagePaths: string[] = [];
+        for (let i = 0; i < imageBuffers.length; i++) {
         const imagePath = path.join(tempDir, `frame_${i.toString().padStart(4, '0')}.png`);
         
         // Process and save image
         await sharp(imageBuffers[i])
-          .resize(512, 512, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 1 } })
-          .png()
-          .toFile(imagePath);
+            .resize(512, 512, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 1 } })
+            .png()
+            .toFile(imagePath);
         
         imagePaths.push(imagePath);
-      }
-      
-      console.log(`Creating MP4 with ${imagePaths.length} frames at ${fps} FPS...`);
-      
-      // Try to use FFmpeg, fall back to animated WebP if not available
-      try {
-        // Use FFmpeg to create MP4
+        }
+        
+        console.log(`Creating MP4 with ${imagePaths.length} frames at ${fps} FPS...`);
+        
+        // Use ffmpeg-static to create MP4
+        const ffmpegPath = ffmpegStatic || 'ffmpeg';
         const { spawn } = require('child_process');
         
         await new Promise<void>((resolve, reject) => {
-          const ffmpeg = spawn('ffmpeg', [
+        const ffmpeg = spawn(ffmpegPath, [
             '-y', // Overwrite output file
             '-framerate', fps.toString(),
             '-i', path.join(tempDir, 'frame_%04d.png'),
@@ -299,24 +299,28 @@ export class AuroraService {
             '-pix_fmt', 'yuv420p',
             '-crf', '23',
             '-preset', 'medium',
+            '-movflags', '+faststart', // Optimize for web streaming
             outputPath
-          ]);
-          
-          ffmpeg.stderr.on('data', (data: any) => {
+        ]);
+        
+        let stderr = '';
+        
+        ffmpeg.stderr.on('data', (data: any) => {
+            stderr += data.toString();
             console.log(`FFmpeg: ${data}`);
-          });
-          
-          ffmpeg.on('close', (code: any) => {
+        });
+        
+        ffmpeg.on('close', (code: any) => {
             if (code === 0) {
-              resolve();
+            resolve();
             } else {
-              reject(new Error(`FFmpeg process exited with code ${code}`));
+            reject(new Error(`FFmpeg process exited with code ${code}. Error: ${stderr}`));
             }
-          });
-          
-          ffmpeg.on('error', (error: any) => {
-            reject(error);
-          });
+        });
+        
+        ffmpeg.on('error', (error: any) => {
+            reject(new Error(`Failed to spawn FFmpeg: ${error.message}`));
+        });
         });
         
         // Read the created MP4 file
@@ -324,72 +328,38 @@ export class AuroraService {
         
         // Clean up temporary files
         for (const imagePath of imagePaths) {
-          try {
+        try {
             fs.unlinkSync(imagePath);
-          } catch (e) {
+        } catch (e) {
             console.warn(`Failed to delete temporary image: ${imagePath}`);
-          }
+        }
         }
         
         try {
-          fs.unlinkSync(outputPath);
-          fs.rmdirSync(tempDir);
+        fs.unlinkSync(outputPath);
+        fs.rmdirSync(tempDir);
         } catch (e) {
-          console.warn(`Failed to clean up temporary directory: ${tempDir}`);
+        console.warn(`Failed to clean up temporary directory: ${tempDir}`);
         }
         
         console.log(`✓ MP4 created successfully (${mp4Buffer.length} bytes)`);
         return mp4Buffer;
         
-      } catch (ffmpegError) {
-        console.warn('FFmpeg not available, falling back to animated WebP:', ffmpegError);
-        
-        // Fallback: Create animated WebP using Sharp
-        const webpPath = path.join(tempDir, 'aurora.webp');
-        
-        // For now, just create a single frame WebP since sharp doesn't support animated WebP creation
-        // This is a limitation we'll need to work around
-        await sharp(imagePaths[0])
-          .webp({ quality: 80 })
-          .toFile(webpPath);
-        
-        const webpBuffer = fs.readFileSync(webpPath);
-        
-        // Clean up
-        for (const imagePath of imagePaths) {
-          try {
-            fs.unlinkSync(imagePath);
-          } catch (e) {
-            console.warn(`Failed to delete temporary image: ${imagePath}`);
-          }
-        }
-        
-        try {
-          fs.unlinkSync(webpPath);
-          fs.rmdirSync(tempDir);
-        } catch (e) {
-          console.warn(`Failed to clean up temporary directory: ${tempDir}`);
-        }
-        
-        console.log(`✓ Animated WebP created as fallback (${webpBuffer.length} bytes)`);
-        return webpBuffer;
-      }
-      
     } catch (error) {
-      console.error('Error creating video:', error);
-      
-      // Clean up on error
-      try {
+        console.error('Error creating video:', error);
+        
+        // Clean up on error
+        try {
         if (fs.existsSync(tempDir)) {
-          fs.rmSync(tempDir, { recursive: true, force: true });
+            fs.rmSync(tempDir, { recursive: true, force: true });
         }
-      } catch (e) {
+        } catch (e) {
         console.warn(`Failed to clean up on error: ${tempDir}`);
-      }
-      
-      throw new Error('Failed to create video from images');
+        }
+        
+        throw new Error(`Failed to create video from images: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
-  }
+    }
 
   /**
    * Upload video to Cloudinary
