@@ -27,6 +27,49 @@ A modular serverless backend for AI Agents written in TypeScript, designed to ru
 ### Health Check
 - `GET /api/health` - Service health status
 
+### Character Endpoints
+
+These endpoints provide access to AI-powered characters who can discuss the impact of space weather from their unique perspectives. Each character is a persona with a specific role and background, offering insights into how solar events affect their field.
+
+-   `GET /api/characters` - Get a list of all available characters and their descriptions.
+-   `POST /api/characters/{characterName}` - Interact with a specific character.
+
+**Available Characters:**
+
+*   **Captain Rina Hartono (Pilot)**: `/api/characters/pilot` - Discusses aviation impacts like HF radio blackouts and GPS issues.
+*   **Ibrahim Kusuma (Power Grid Operator)**: `/api/characters/power-operator` - Explains how geomagnetic storms affect power grids.
+*   **Dr. Elena Park (Astronaut)**: `/api/characters/astronaut` - Shares the risks of radiation for humans in space.
+*   **Budi Mendes (Satellite Operator)**: `/api/characters/satellite-operator` - Describes how CMEs can disrupt satellite operations.
+*   **Arief Rahman (Emergency Coordinator)**: `/api/characters/emergency-coordinator` - Talks about the challenges for emergency services during space weather events.
+*   **Dr. Maya Setiawan (Scientist)**: `/api/characters/scientist` - Provides a research perspective on modeling and forecasting solar activity.
+
+#### Interact with a Character
+
+To chat with a character, send a `POST` request to their specific endpoint.
+
+**Example Request:**
+
+```bash
+curl -X POST https://your-app.vercel.app/api/characters/pilot \
+  -H "Content-Type: application/json" \
+  -d '{
+    "messages": [
+      {"role": "user", "content": "What was your most challenging experience with space weather?"}
+    ],
+    "thread_id": "user-thread-456"
+  }'
+```
+
+**Example Response:**
+
+```json
+{
+  "response": "I remember one flight over the Arctic... We lost all high-frequency communication for nearly an hour. We had to rely on our training and satellite phone backups to maintain contact. It's a stark reminder of how vulnerable our systems can be.",
+  "thread_id": "user-thread-456",
+  "status": "success"
+}
+```
+
 ## Solar Imagery Endpoints (Aurora, CME, SUV)
 
 These endpoints fetch the latest images from NOAA, compose them into an animated GIF server-side (no ffmpeg required), upload the GIF to Cloudinary, and return the CDN URL. The default animation speed is 6 FPS (about 1.5x the earlier 4 FPS).
