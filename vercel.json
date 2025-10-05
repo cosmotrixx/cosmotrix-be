@@ -19,15 +19,18 @@
   "crons": [
     {
       "path": "/api/aurora-cron",
-      "schedule": "0 * * * *"
+      "schedule": "0 * * * *",
+      "method": "POST"
     },
     {
       "path": "/api/cme-cron",
-      "schedule": "0 * * * *"
+      "schedule": "0 * * * *",
+      "method": "POST"
     },
     {
       "path": "/api/suv-cron",
-      "schedule": "0 * * * *"
+      "schedule": "0 * * * *",
+      "method": "POST"
     }
   ]
 }

@@ -3,23 +3,21 @@ import { CMEService } from '../lib/services/cme_service';
 import { initializeDatabase } from '../lib/models/database';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  // Handle CORS
+  // CORS (cron is server-to-server, but keep this tidy)
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
-  if (req.method === 'OPTIONS') {
-    return res.status(200).json({});
-  }
+  if (req.method === 'OPTIONS') return res.status(200).json({});
 
-  if (req.method !== 'POST') {
+  // Accept GET (from Vercel Cron) and POST (for manual triggers)
+  if (req.method !== 'GET' && req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  // Verify this is a valid cron request (you can add authentication here)
-  const authHeader = req.headers.authorization;
+  // Auth: Vercel can auto-send Authorization: Bearer <CRON_SECRET> if you set CRON_SECRET env var
   const expectedAuth = process.env.CRON_SECRET;
-  
+  const authHeader = req.headers.authorization;
   if (expectedAuth && authHeader !== `Bearer ${expectedAuth}`) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
